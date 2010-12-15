@@ -138,7 +138,7 @@ class PageHandlerXML(object):
         self.xsl_cache = self.handler.ph_globals.xml.xsl_cache
 
         self.doc = frontik.doc.Doc(root_node=etree.Element('doc', frontik='true'))
-        self.transform = None
+#        self.transform = None
         self.transform_result = None
         if not self.handler.config.apply_xsl:
             self.log.debug('ignoring set_xsl() because config.apply_xsl=%s', self.handler.config.apply_xsl)
@@ -162,18 +162,9 @@ class PageHandlerXML(object):
     def set_xsl(self, filename):
         self.transform_filename = filename
 
-        try:
-            self.transform = self.xsl_cache.load(filename)
-
-        except etree.XMLSyntaxError, error:
-            self._set_xsl_log_and_raise('failed parsing XSL file {0} (XML syntax)')
-        except etree.XSLTParseError, error:
-            self._set_xsl_log_and_raise('failed parsing XSL file {0} (XSL parse error)')
-        except:
-            self._set_xsl_log_and_raise('XSL transformation error with file {0}')
 
     def _finish_xml(self, cb):
-        if self.apply_xsl and self.transform:
+        if self.apply_xsl and self.transform_filename:
             self._prepare_finish_with_xsl(cb)
         else:
             self._prepare_finish_wo_xsl(cb)
@@ -186,17 +177,25 @@ class PageHandlerXML(object):
 
         @self.handler.async_callback
         def reraise_in_ioloop(e):
+#        try:
+#            self.transform = self.xsl_cache.load(filename)
+#
+#        except etree.XMLSyntaxError, error:
+#            self._set_xsl_log_and_raise('failed parsing XSL file {0} (XML syntax)')
+#        except etree.XSLTParseError, error:
+#            self._set_xsl_log_and_raise('failed parsing XSL file {0} (XSL parse error)')
+#        except:
+#            self._set_xsl_log_and_raise('XSL transformation error with file {0}')
             self.log.exception('failed transformation with XSL %s' % self.transform_filename)
             raise e
 
-        def apply_xsl():
-            t = time.time()
-            result = str(self.transform(self.doc.to_etree_element()))
+        @self.handler.async_callback
+        def apply_cb(result):
+            result = str(result)
             self.log.stage_tag("xsl")
-            self.log.debug('applied XSL %s in %.2fms', self.transform_filename, (time.time() - t)*1000)
-            return result
+            cb(result)
 
-        self.handler.executor.add_job(apply_xsl, cb, reraise_in_ioloop)
+        self.handler.executor.add_job(self.transform_filename, self.doc.to_etree_element(), apply_cb, reraise_in_ioloop)
 
     def _prepare_finish_wo_xsl(self, cb):
         self.log.debug('finishing wo xsl')

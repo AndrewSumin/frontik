@@ -1,46 +1,41 @@
-import time
 import functools
 import threading
 import Queue
 import tornado.ioloop
+import multiprocessing
+import frontik.handler_xml
+from frontik import etree
 
 import logging
 log = logging.getLogger('frontik.jobs')
+XSL_cache = None
 
-def work(func, cb, exception_cb):
+def work(filename, data):
+    global XSL_cache
     try:
-        result = func()
-        tornado.ioloop.IOLoop.instance().add_callback(functools.partial(cb, result))
+        transform = XSL_cache.xsl_cache.load(filename)
+        result = str(transform(etree.fromstring(data)))
     except Exception, e:
-        tornado.ioloop.IOLoop.instance().add_callback(functools.partial(exception_cb, e)) 
+#        self.log.debug('Failed transformation XSL: '+filename)        
+        return (None, e)
+    return (result, None)
 
-def queue_worker(queue):
-    while True:
-        (func, cb, exception_cb) = queue.get()
-        work(func, cb, exception_cb)
+def init(cache_config):
+    global XSL_cache
+    XSL_cache = frontik.handler_xml.PageHandlerXMLGlobals(cache_config)
 
-
-class PoolExecutor(object):
-    def __init__(self, pool_size=5):
+class ProcessPoolExecutor(object):
+    def __init__(self, pool_size, cache_config):
         self.log = log
-        self.events = Queue.Queue()
-
         self.log.debug('pool size: '+str(pool_size))
-        self.workers = [threading.Thread(target=functools.partial(queue_worker, self.events))
-                        for i in range(pool_size)]
-        [i.setDaemon(True) for i in self.workers]
-        [i.start() for i in self.workers]
-        self.log.debug('active threads count = ' + str(threading.active_count()))
+        self.workers = multiprocessing.Pool(pool_size, init, [cache_config])
+        self.log.debug('active process count = ' + str(len(multiprocessing.active_children())))
 
-
-    def add_job(self, func, cb, exception_cb):
-        self.events.put((func, cb, exception_cb))
-
-class SimpleSpawnExecutor(object):
-    def __init__(self):
-        self.log = log
-
-    def add_job(self, func, cb, error_cb):
-        threading.Thread(target=functools.partial(work, func, cb, error_cb)).start()
-        self.log.debug('active threads count (+1) = ' + str(threading.active_count()))
-
+    def add_job(self, filename, data, cb, err_cb):
+        def _cb(responce):
+            r, e = responce
+            if r is not None:
+                cb(r)
+            else:
+                err_cb(e)
+        self.workers.apply_async(work, [filename, etree.tostring(data)], callback = _cb) #, error_callback = err_cb)

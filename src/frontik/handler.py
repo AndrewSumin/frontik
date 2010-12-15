@@ -156,9 +156,9 @@ class PageHandlerGlobals(object):
                 tornado.httpclient.AsyncHTTPClient(max_clients=200, max_simultaneous_connections=200))
 
         if tornado.options.options.executor_pool:
-            self.executor = frontik.jobs.PoolExecutor(pool_size=tornado.options.options.executor_pool_size)
-        else:
-            self.executor = frontik.jobs.SimpleSpawnExecutor()
+            self.executor = frontik.jobs.ProcessPoolExecutor(tornado.options.options.executor_pool_size, self.config)
+#        else:
+#            self.executor = frontik.jobs.SingleProcessExecutor()
 
         
 class PageHandler(tornado.web.RequestHandler):
